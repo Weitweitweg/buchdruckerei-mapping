@@ -26,12 +26,12 @@ Echtes 3D per Heightfield-Raytracing (Perspektive, Seitenflächen, Schlagschatte
 | 6–14 s | Streiflicht mit echten Schatten, Relief wächst |
 | 14–22 s | Sandsteinblöcke fahren in Wellen heraus / tauchen ein |
 | 22–30 s | Fensterkästen fahren vor, Fenster werden tiefe warme Räume |
-| 30–40 s | **Ethnik_84** tief hinter der Fassade, sichtbar durch die Fenster, dann öffnet sich der Giebel |
+| 30–40 s | **Ethnik_84** (s/w, ohne Flackern) hinter der Fassade, erst durch die Fenster, dann als Portal |
 | 40–48 s | Fassade zerbricht → **Polygon-Tunnel** als 3D-Relief dahinter |
 | 48–55 s | Flüssige Steinwellen mit Glanz |
-| 55–65 s | **Ethnik_07** wächst als weißes Steinrelief aus dem Putz |
-| 65–75 s | **Ethnik_101** als Pin-Art-Feld |
-| 75–87 s | Fassade teilt sich wie ein Tempeltor → **Ethnik_124** als Steinmasken-Relief |
+| 55–65 s | **Ethnik_07** als flaches, gut lesbares Relief, tiefer gesetzt |
+| 65–75 s | **Ethnik_101** auf einem Bildschirm-Monolith, der aus der Fassade fährt und sich dreht |
+| 75–87 s | Fassade teilt sich wie ein Tempeltor → **Ethnik_124** nah am Original |
 | 87–95 s | Kühles Mondlicht-Streiflicht |
 | 95–108 s | Warmes Finale, Giebel springt zweimal heraus |
 | 108–120 s | Linien-Outro, Blackout |

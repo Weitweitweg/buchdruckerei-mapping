@@ -110,10 +110,16 @@ def e84_frame(sec):
         while True:
             ok, f = cap.read()
             if not ok: break
-            fr.append(cv2.resize(f, (1280, 720), interpolation=cv2.INTER_AREA))
+            fr.append(cv2.cvtColor(cv2.resize(f, (1280, 720), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY))
         fr = np.stack(fr); n = len(fr)
-        _E84 = np.stack([fr[max(0, i - 2):i + 3].max(0) for i in range(n)])
-    return _E84[int(sec * 30) % len(_E84)].astype(np.float32) / 255
+        mx = np.stack([fr[max(0, i - 3):i + 4].max(0) for i in range(n)])
+        means = mx.reshape(n, -1).mean(1) / 255
+        sm = np.array([means[max(0, i - 12):i + 13].mean() for i in range(n)])
+        _E84 = (mx, (0.16 / np.maximum(sm, 0.02)).astype(np.float32))
+    mx, gain = _E84
+    i = int(sec * 30) % len(mx)
+    v = np.clip(mx[i].astype(np.float32) / 255 * gain[i], 0, 1)
+    return np.repeat(v[..., None], 3, axis=2)
 _E101 = None
 def e101_small(sec):
     global _E101
@@ -128,6 +134,18 @@ def e101_small(sec):
         mx = np.stack([fr[max(0, i - 2):i + 3].max(0) for i in range(n)])
         _E101 = np.stack([mx[max(0, i - 2):i + 3].mean(0) for i in range(n)])
     return _E101[int(sec * 30) % len(_E101)]
+_E101F = None
+def e101_full(sec):
+    global _E101F
+    if _E101F is None:
+        cap = cv2.VideoCapture(os.path.join(HERE, 'Ethnik3_101.mov')); fr = []
+        while True:
+            ok, f = cap.read()
+            if not ok: break
+            fr.append(cv2.resize(f, (960, 540), interpolation=cv2.INTER_AREA))
+        fr = np.stack(fr); n = len(fr)
+        _E101F = np.stack([fr[max(0, i - 2):i + 3].max(0) for i in range(n)])
+    return _E101F[int(sec * 30) % len(_E101F)].astype(np.float32) / 255 * 1.15
 POLY = Clip('poly.mp4'); E07 = Clip('Ethnik3_07.mov'); E84 = Clip('Ethnik3_84.mov')
 E101 = Clip('Ethnik3_101.mov'); E124 = Clip('Ethnik3_124.mov')
 
@@ -262,18 +280,24 @@ def sc_windows(t, t0):
 GABLE = ((XX > T(780, 0)[0]) & (XX < T(1330, 0)[0]) & (YY < T(0, 985)[1])).astype(np.float32) * BLD
 
 def sc_portal84(t, t0):
-    """Ethnik 84: huge image deep behind the facade, seen through the windows, then the gable opens"""
+    """Ethnik 84 (b/w): first visible through the windows, then the whole centre opens as one clean portal"""
     tt = t - t0
-    op = ss(0.4, 1.6, tt) * (1 - ss(9.0, 10.2, tt))
-    big = ss(4.0, 5.5, tt) * (1 - ss(8.2, 9.4, tt))
-    back_z = -900.0 * K
-    hole = np.clip(GLASS + GABLE * PLASTER * big, 0, 1) > 0.5
-    Hm = HB * 1.6 + FRAMES * 30 * K * big
-    Hm = np.where(hole & (op > 0.5), NEG, np.where(hole, HB - op * 60 * K, Hm))
-    vid = place(np.clip(e84_frame(tt) * 2.2, 0, 1) ** 0.85, 1.1, W / 2, H * 0.40)
-    alb = F * 0.4
-    return render(Hm, alb, (-0.35, -0.8, 0.5), Lcol=C(1.0, 0.95, 0.9) * 1.1, amb=0.05, spec=0.2, fog=1e9,
-                  back_alb=vid * 1.35, back_z=back_z + 1.0, layers=48, back_emis=True, thin_back=back_z, back_par=0.3)
+    op = ss(0.4, 1.4, tt) * (1 - ss(9.2, 10.2, tt))
+    big = ss(3.6, 5.0, tt) * (1 - ss(8.0, 9.2, tt))
+    back_z = -700.0 * K
+    gab = GABLE > 0.5
+    # portal grows from the centre outward
+    rr = np.hypot((XX - W / 2) / (W * 0.30), (YY - H * 0.42) / (H * 0.45))
+    portal = gab & (rr < big * 1.6)
+    hole = ((GLASS > 0.5) & (op > 0.5)) | portal
+    Hm = HB * 1.6
+    Hm = np.where(hole, NEG, Hm)
+    rim = cv2.GaussianBlur((cv2.dilate(portal.astype(np.uint8), np.ones((5, 5), np.uint8)) - portal).astype(np.float32), (0, 0), 1.5) * 3
+    vid = place(np.clip(e84_frame(tt) ** 0.9 * 1.25, 0, 1), 1.18, W / 2, H * 0.40)
+    alb = F * 0.35
+    emis = m3(rim) * C(0.9, 0.9, 0.9)
+    return render(Hm, alb, (-0.35, -0.8, 0.5), Lcol=C(1.0, 0.97, 0.95), amb=0.05, spec=0.15, fog=1e9, emis=emis,
+                  back_alb=vid, back_z=back_z + 1.0, layers=40, back_emis=True, thin_back=back_z, back_par=0.12)
 
 def poly_frame(sec):
     g = POLY.get(sec).mean(axis=2)
@@ -311,28 +335,34 @@ def sc_relief07(t, t0):
     """Ethnik 07: the drawn head grows out of the plaster as a white stone relief"""
     tt = t - t0
     amp = ss(0.3, 2.2, tt) * (1 - ss(8.6, 10.2, tt))
-    v = place(e07_frame(tt), 1.15, W * 0.47, H * 0.40)
-    v = np.clip(v * 1.6, 0, 1)
-    rel = cv2.GaussianBlur(v, (0, 0), 7 * K) * 1.0 + cv2.GaussianBlur(v, (0, 0), 1.5 * K) * 0.35
-    Hm = HB * 1.2 * (1 - 0.6 * amp) + rel * 95 * DEP * amp
-    stone = C(0.82, 0.86, 0.9) * m3(0.55 + 0.45 * v)
-    w = m3(np.clip(rel * 2.5, 0, 1) * amp)
-    alb = F * 0.55 * (1 - w) + stone * w
-    ang = math.pi * (1.0 - 0.7 * ss(0, 10, tt))
-    return render(Hm, alb, (math.cos(ang), -0.5, 0.38), Lcol=C(1.0, 0.95, 0.9) * 1.5, amb=0.06, spec=0.5, shin=30)
+    v = place(e07_frame(tt), 1.0, W * 0.52, H * 0.66)
+    v = np.clip(v * 1.5, 0, 1)
+    rel = cv2.GaussianBlur(v, (0, 0), 9 * K) * 0.8 + cv2.GaussianBlur(v, (0, 0), 1.2 * K) * 0.2
+    Hm = HB * 1.2 * (1 - 0.7 * amp) + rel * 38 * DEP * amp
+    alb = F * 0.30 * (1 - amp) + F * 0.12 * amp + m3(v * amp) * C(0.95, 0.97, 1.0)
+    emis = m3(v * amp) * C(0.9, 0.93, 1.0) * 0.55
+    ang = math.pi * (1.0 - 0.6 * ss(0, 10, tt))
+    return render(Hm, alb, (math.cos(ang), -0.5, 0.45), Lcol=C(1.0, 0.95, 0.9) * 1.2, amb=0.25, spec=0.3, shin=30, emis=emis)
 
-def sc_pins101(t, t0):
-    """Ethnik 101: pin-art field, every pin pushed out by the video's brightness"""
+def sc_monolith101(t, t0):
+    """Ethnik 101: a screen-monolith slides out of the facade and turns in space, the video plays unaltered on its face"""
     tt = t - t0
-    amp = ss(0.3, 1.8, tt) * (1 - ss(8.6, 10.2, tt))
-    small = e101_small(tt)
-    lum = small.mean(axis=2)
-    hp = up(lum, PSZ, px_n, py_n) * PBEVEL
-    cp = up(small, PSZ, px_n, py_n)
-    Hm = HB * 1.2 * (1 - amp) + (hp * 130 * DEP + 4 * K * PBEVEL) * amp * BLD
-    alb = F * (1 - amp) + (cp * 2.2 + 0.18) * amp
-    glow = np.clip(cp - 0.45, 0, None) * 2.5 * amp
-    return render(Hm, alb, (-0.45, -0.7, 0.55), Lcol=C(1.0, 0.97, 0.95) * 1.3, amb=0.28, spec=0.6, shin=40, emis=glow)
+    ext = ss(0.3, 1.8, tt) * (1 - ss(8.6, 10.0, tt))
+    x0, x1, y0, y1 = 0.17 * W, 0.83 * W, 0.20 * H, 0.86 * H
+    rect = ((XX >= x0) & (XX <= x1) & (YY >= y0) & (YY <= y1)).astype(np.float32)
+    rw, rh = int(x1 - x0), int(y1 - y0)
+    fr = e101_full(tt)
+    fh, fw = fr.shape[:2]
+    cw = int(fh * rw / rh); cx0 = (fw - cw) // 2
+    crop = cv2.resize(fr[:, max(0, cx0):cx0 + cw], (rw, rh), interpolation=cv2.INTER_LINEAR)
+    vid = np.zeros((H, W, 3), np.float32); vid[int(y0):int(y0) + rh, int(x0):int(x0) + rw] = crop
+    turn = 0.30 * math.sin((tt - 1.8) * 0.7) * ss(1.8, 3.0, tt) * (1 - ss(8.0, 8.8, tt))
+    tiltv = 0.10 * math.sin((tt - 1.8) * 0.5) * ss(1.8, 3.0, tt) * (1 - ss(8.0, 8.8, tt))
+    z = (150 * DEP + turn * (XX - W / 2) + tiltv * (YY - H * 0.53)) * ext
+    Hm = HB * 1.3 * (1 - rect * ext) + rect * z
+    alb = F * 0.35 * m3(1 - rect) + vid * m3(rect)
+    emis = vid * 0.85 * m3(rect * ext)
+    return render(Hm, alb, (-0.45, -0.7, 0.55), Lcol=C(1.0, 0.97, 0.95) * 1.0, amb=0.15, spec=0.25, shin=40, emis=emis, layers=60)
 
 def sc_temple124(t, t0):
     """Ethnik 124: the facade splits like a temple gate and reveals the stone mask deep inside"""
@@ -348,12 +378,12 @@ def sc_temple124(t, t0):
     Fh = rmap(F, srcx, YY)
     vid = place(E124.get(tt), 1.05, W / 2, H * 0.43)
     lum = cv2.GaussianBlur(vid.mean(axis=2), (0, 0), 1.2 * K)
-    zb = -520 * DEP + lum * 300 * DEP * (0.3 + 0.7 * o)
+    zb = -380 * DEP + lum * 90 * DEP * (0.3 + 0.7 * o)
     Hm = np.where(gap, zb, Hh + zhalf)
-    alb = np.where(m3(gap), vid * 1.3, Fh)
+    alb = np.where(m3(gap), vid * 0.6, Fh)
     mask = np.where(gap, BLD, Bh * BLD)
     edge = np.exp(-np.minimum(np.abs(XX - (cx - sx)), np.abs(XX - (cx + sx))) / (6 * K)) * (o > 0.02) * BLD
-    emis = m3(edge) * C(0.6, 0.85, 1.0) * 0.8
+    emis = m3(edge) * C(0.6, 0.85, 1.0) * 0.8 + vid * 0.85 * m3(gap.astype(np.float32))
     return render(Hm, alb, (0.0, -0.75, 0.6), Lcol=C(1.0, 0.95, 0.9) * 1.5, amb=0.3, spec=0.5, shin=35, emis=emis,
                   fog=2500 * DEP, mask=mask, layers=90)
 
@@ -379,7 +409,7 @@ TL = [  # start, end, fn, t0
     (40.2, 48.6, sc_collapse, 40.2),
     (48.2, 55.6, sc_ripple, 48.2),
     (55.2, 65.6, sc_relief07, 55.2),
-    (65.2, 75.6, sc_pins101, 65.2),
+    (65.2, 75.6, sc_monolith101, 65.2),
     (75.2, 87.0, sc_temple124, 75.2),
     (86.6, 95.4, lambda t, t0: sc_relight(t, t0, cool=True), 86.6),
     (95.0, 108.4, sc_finale, 95.0),
