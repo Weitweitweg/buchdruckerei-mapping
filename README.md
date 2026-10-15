@@ -15,7 +15,24 @@ Eine 60-Sekunden-Mapping-Show für die Fassade der Buchdruckerei, komplett proze
 | `src/render.py` | Masken, Szenen und Renderer |
 | `src/audio.py` | Soundtrack (100 BPM, synthetisch) |
 
-## Ablauf
+## 3D-Version mit Higgsfield (Kling 3.0)
+
+`media/Buchdruckerei_3D_Mapping_Higgsfield.mp4` – 60 s: Intro → 5 KI-Clips → Neon-Outro.
+Jeder Clip interpoliert per Start-/Endbild zwischen zwei Keyframes aus `keyframes/` (über raw.githubusercontent.com an Higgsfield übergeben), dadurch sind die Übergänge nahtlos.
+
+| Zeit | Clip | 3D-Moment |
+|---|---|---|
+| 0–5 s | Intro | Fassade blendet aus dem Dunkeln auf |
+| 5–15 s | clip1 | Linien zeichnen die Architektur, Neon-Spitzbögen |
+| 15–25 s | clip2 | Fensterläden klappen räumlich aus der Wand, Farbwelle |
+| 25–35 s | clip3 | Fassade beult sich aus und faltet sich in Koralle |
+| 35–45 s | clip4 | Wand zerfällt ins Dunkle, Goldbäume wachsen heraus |
+| 45–55 s | clip5 | Bäume zerfallen zu Partikeln, Fassade wölbt sich, Neon-Finale |
+| 55–60 s | Outro | Schlusslicht, Blackout |
+
+Einzelclips: `media/higgsfield_clips/` (1280×720, 24 fps).
+
+## Ablauf (prozedurale Version)
 
 | Zeit | Szene |
 |---|---|
