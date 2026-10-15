@@ -15,6 +15,27 @@ Eine 60-Sekunden-Mapping-Show für die Fassade der Buchdruckerei, komplett proze
 | `src/render.py` | Masken, Szenen und Renderer |
 | `src/audio.py` | Soundtrack (100 BPM, synthetisch) |
 
+## v3 – 2-Minuten-3D-Show in 4K (aktuell)
+
+`media/Buchdruckerei_4K_Vorschau_1080p.mp4` – Vorschau. Die 4K-Datei (3840×2160) und der Resolume-Content (1506×1600) sind zu groß für GitHub und liegen lokal.
+Echtes 3D per Heightfield-Raytracing (Perspektive, Seitenflächen, Schlagschatten, AO, Glanz). Code: `src/v3_4k/`.
+
+| Zeit | Szene |
+|---|---|
+| 0–7 s | Linien zeichnen die Architektur |
+| 6–14 s | Streiflicht mit echten Schatten, Relief wächst |
+| 14–22 s | Sandsteinblöcke fahren in Wellen heraus / tauchen ein |
+| 22–30 s | Fensterkästen fahren vor, Fenster werden tiefe warme Räume |
+| 30–40 s | **Ethnik_84** tief hinter der Fassade, sichtbar durch die Fenster, dann öffnet sich der Giebel |
+| 40–48 s | Fassade zerbricht → **Polygon-Tunnel** als 3D-Relief dahinter |
+| 48–55 s | Flüssige Steinwellen mit Glanz |
+| 55–65 s | **Ethnik_07** wächst als weißes Steinrelief aus dem Putz |
+| 65–75 s | **Ethnik_101** als Pin-Art-Feld |
+| 75–87 s | Fassade teilt sich wie ein Tempeltor → **Ethnik_124** als Steinmasken-Relief |
+| 87–95 s | Kühles Mondlicht-Streiflicht |
+| 95–108 s | Warmes Finale, Giebel springt zweimal heraus |
+| 108–120 s | Linien-Outro, Blackout |
+
 ## 3D-Version mit Higgsfield (Kling 3.0)
 
 `media/Buchdruckerei_3D_Mapping_Higgsfield.mp4` – 60 s: Intro → 5 KI-Clips → Neon-Outro.
