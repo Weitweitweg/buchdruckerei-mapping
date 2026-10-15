@@ -144,7 +144,7 @@ def e101_full(sec):
             if not ok: break
             fr.append(cv2.resize(f, (960, 540), interpolation=cv2.INTER_AREA))
         fr = np.stack(fr); n = len(fr)
-        _E101F = np.stack([fr[max(0, i - 2):i + 3].max(0) for i in range(n)])
+        _E101F = np.stack([fr[max(0, i - 1):i + 2].max(0) for i in range(n)])
     return _E101F[int(sec * 30) % len(_E101F)].astype(np.float32) / 255 * 1.15
 POLY = Clip('poly.mp4'); E07 = Clip('Ethnik3_07.mov'); E84 = Clip('Ethnik3_84.mov')
 E101 = Clip('Ethnik3_101.mov'); E124 = Clip('Ethnik3_124.mov')
@@ -160,6 +160,39 @@ def place(img, scale_w, cx, cy):
     if xb > xa and yb > ya:
         out[ya:yb, xa:xb] = big[ya - oy:yb - oy, xa - ox:xb - ox]
     return out
+
+# ---------- facade colour grading ----------
+TC0 = C(0.035, 0.04, 0.085); TC1 = C(0.20, 0.27, 0.58); TC2 = C(0.80, 0.90, 1.0)
+def tone(g):
+    g3 = m3(np.clip(g, 0, 1)); a = np.clip(g3 * 2, 0, 1); b = np.clip(g3 * 2 - 1, 0, 1)
+    return TC0 * (1 - a) + TC1 * a + (TC2 - TC1) * b
+def lum(img): return img.mean(axis=2)
+def grade(vid, keep=0.35):
+    """pull a clip into the facade palette, keep a little of its own colour"""
+    g = lum(vid)
+    return tone(np.clip(g * 1.15, 0, 1)) * (1 - keep) + vid * keep * (0.6 + 0.4 * m3(g))
+
+def gothic_hall():
+    img = np.zeros((H, W, 3), np.float32)
+    cx, base = W / 2, H * 0.93
+    for k in range(14, 0, -1):
+        s_ = 0.86 ** k
+        w = W * 0.95 * s_; h = H * 1.25 * s_
+        x0, x1 = cx - w / 2, cx + w / 2; ys = base - h * 0.55; ya = base - h
+        sc = (0.866 * w) / max(1, ys - ya)
+        inside = (XX >= x0) & (XX <= x1) & (YY <= base) & (YY >= ya)
+        dy = (ys - YY) * sc
+        arch = (np.hypot(XX - x0, dy) <= w) & (np.hypot(XX - x1, dy) <= w)
+        m = (inside & ((YY >= ys) | arch)).astype(np.float32)
+        ring = np.clip(m - cv2.erode(m, np.ones((int(18 * K * s_ + 3),) * 2, np.uint8)), 0, 1)
+        shade = 0.55 * (1 - k / 15) + 0.08
+        img = img * (1 - m3(ring)) + m3(ring) * TC1 * shade * 1.6
+    glow = np.exp(-(((XX - cx) / (W * 0.28)) ** 2 + ((YY - H * 0.45) / (H * 0.32)) ** 2))
+    img += m3(glow) * C(0.25, 0.5, 0.95) * 0.35
+    floor = np.clip((YY - H * 0.80) / (H * 0.2), 0, 1)
+    img += m3(floor * glow) * TC1 * 0.3
+    return img
+HALL = gothic_hall()
 
 # ---------- renderer (half-res ray march, full-res shading) ----------
 def render(Hm, alb, light, Lcol=C(1, 0.97, 0.92), amb=0.12, spec=0.0, shin=40.0, specCol=C(1, 1, 1),
@@ -293,7 +326,12 @@ def sc_portal84(t, t0):
     Hm = HB * 1.6
     Hm = np.where(hole, NEG, Hm)
     rim = cv2.GaussianBlur((cv2.dilate(portal.astype(np.uint8), np.ones((5, 5), np.uint8)) - portal).astype(np.float32), (0, 0), 1.5) * 3
-    vid = place(np.clip(e84_frame(tt) ** 0.9 * 1.25, 0, 1), 1.18, W / 2, H * 0.40)
+    fig = place(np.clip(e84_frame(tt) ** 0.9 * 1.25, 0, 1), 1.05, W / 2, H * 0.42)
+    gv = lum(fig)
+    alpha = m3(np.clip((gv - 0.04) / 0.18, 0, 1))
+    zoom = 1.0 + 0.04 * tt
+    hall = cv2.warpAffine(HALL, np.float32([[zoom, 0, (1 - zoom) * W / 2], [0, zoom, (1 - zoom) * H * 0.45]]), (W, H))
+    vid = hall * (1 - alpha) + tone(np.clip(gv * 1.1, 0, 1)) * 1.15 * alpha
     alb = F * 0.35
     emis = m3(rim) * C(0.9, 0.9, 0.9)
     return render(Hm, alb, (-0.35, -0.8, 0.5), Lcol=C(1.0, 0.97, 0.95), amb=0.05, spec=0.15, fog=1e9, emis=emis,
@@ -336,33 +374,37 @@ def sc_relief07(t, t0):
     tt = t - t0
     amp = ss(0.3, 2.2, tt) * (1 - ss(8.6, 10.2, tt))
     v = place(e07_frame(tt), 1.0, W * 0.52, H * 0.66)
-    v = np.clip(v * 1.5, 0, 1)
+    v = np.clip(v * 1.15, 0, 1) ** 1.3
     rel = cv2.GaussianBlur(v, (0, 0), 9 * K) * 0.8 + cv2.GaussianBlur(v, (0, 0), 1.2 * K) * 0.2
-    Hm = HB * 1.2 * (1 - 0.7 * amp) + rel * 38 * DEP * amp
-    alb = F * 0.30 * (1 - amp) + F * 0.12 * amp + m3(v * amp) * C(0.95, 0.97, 1.0)
-    emis = m3(v * amp) * C(0.9, 0.93, 1.0) * 0.55
+    Hm = HB * 1.4 + rel * 16 * DEP * amp
+    base = 0.5 * F + 0.5 * GRAYF * C(0.92, 0.96, 1.0)
+    alb = F * 0.30 * (1 - amp) + base * m3(0.22 + 1.1 * v) * amp
+    emis = tone(v) * m3(v * amp * (1 - 0.8 * GLASS)) * 0.3
     ang = math.pi * (1.0 - 0.6 * ss(0, 10, tt))
     return render(Hm, alb, (math.cos(ang), -0.5, 0.45), Lcol=C(1.0, 0.95, 0.9) * 1.2, amb=0.25, spec=0.3, shin=30, emis=emis)
 
 def sc_monolith101(t, t0):
-    """Ethnik 101: a screen-monolith slides out of the facade and turns in space, the video plays unaltered on its face"""
+    """Ethnik 101: the real gable slides out as a block and carries the figure on its own surface"""
     tt = t - t0
     ext = ss(0.3, 1.8, tt) * (1 - ss(8.6, 10.0, tt))
-    x0, x1, y0, y1 = 0.17 * W, 0.83 * W, 0.20 * H, 0.86 * H
-    rect = ((XX >= x0) & (XX <= x1) & (YY >= y0) & (YY <= y1)).astype(np.float32)
+    blk = cv2.GaussianBlur(GABLE, (0, 0), 0.8 * K)
+    ys_, xs_ = np.nonzero(GABLE > 0.5)
+    x0, x1, y0, y1 = xs_.min(), xs_.max(), ys_.min(), ys_.max()
     rw, rh = int(x1 - x0), int(y1 - y0)
     fr = e101_full(tt)
     fh, fw = fr.shape[:2]
-    cw = int(fh * rw / rh); cx0 = (fw - cw) // 2
-    crop = cv2.resize(fr[:, max(0, cx0):cx0 + cw], (rw, rh), interpolation=cv2.INTER_LINEAR)
-    vid = np.zeros((H, W, 3), np.float32); vid[int(y0):int(y0) + rh, int(x0):int(x0) + rw] = crop
-    turn = 0.30 * math.sin((tt - 1.8) * 0.7) * ss(1.8, 3.0, tt) * (1 - ss(8.0, 8.8, tt))
-    tiltv = 0.10 * math.sin((tt - 1.8) * 0.5) * ss(1.8, 3.0, tt) * (1 - ss(8.0, 8.8, tt))
-    z = (150 * DEP + turn * (XX - W / 2) + tiltv * (YY - H * 0.53)) * ext
-    Hm = HB * 1.3 * (1 - rect * ext) + rect * z
-    alb = F * 0.35 * m3(1 - rect) + vid * m3(rect)
-    emis = vid * 0.85 * m3(rect * ext)
-    return render(Hm, alb, (-0.45, -0.7, 0.55), Lcol=C(1.0, 0.97, 0.95) * 1.0, amb=0.15, spec=0.25, shin=40, emis=emis, layers=60)
+    cw = int(fh * rw / rh); cx0 = max(0, (fw - cw) // 2)
+    crop = cv2.resize(fr[:, cx0:cx0 + cw], (rw, rh), interpolation=cv2.INTER_LINEAR)
+    crop = np.clip(crop, 0, 1) ** 0.55
+    vid = np.zeros((H, W, 3), np.float32); vid[y0:y0 + rh, x0:x0 + rw] = grade(crop, keep=0.6)
+    gv = lum(vid)
+    turn = 0.22 * math.sin((tt - 1.8) * 0.7) * ss(1.8, 3.0, tt) * (1 - ss(8.0, 8.8, tt))
+    z = (120 * DEP + turn * (XX - W / 2)) * ext + HB * 1.3
+    Hm = HB * 1.3 * (1 - blk) + blk * z
+    surf = 0.45 * F + 0.55 * GRAYF
+    alb = F * 0.35 * m3(1 - blk) + m3(blk) * vid
+    emis = vid * m3(blk * ext) * (0.45 + 0.45 * m3(GLASS))
+    return render(Hm, alb, (-0.45, -0.7, 0.55), Lcol=C(1.0, 0.95, 0.9) * 1.1, amb=0.15, spec=0.25, shin=40, emis=emis, layers=60)
 
 def sc_temple124(t, t0):
     """Ethnik 124: the facade splits like a temple gate and reveals the stone mask deep inside"""
@@ -376,14 +418,14 @@ def sc_temple124(t, t0):
     Hh = rmap(HB * 1.4, srcx, YY, NEG)
     Bh = rmap(BLD, srcx, YY)
     Fh = rmap(F, srcx, YY)
-    vid = place(E124.get(tt), 1.05, W / 2, H * 0.43)
+    vid = grade(place(E124.get(tt), 1.05, W / 2, H * 0.43), keep=0.15) * 1.15
     lum = cv2.GaussianBlur(vid.mean(axis=2), (0, 0), 1.2 * K)
     zb = -380 * DEP + lum * 90 * DEP * (0.3 + 0.7 * o)
     Hm = np.where(gap, zb, Hh + zhalf)
     alb = np.where(m3(gap), vid * 0.6, Fh)
     mask = np.where(gap, BLD, Bh * BLD)
     edge = np.exp(-np.minimum(np.abs(XX - (cx - sx)), np.abs(XX - (cx + sx))) / (6 * K)) * (o > 0.02) * BLD
-    emis = m3(edge) * C(0.6, 0.85, 1.0) * 0.8 + vid * 0.85 * m3(gap.astype(np.float32))
+    emis = m3(edge) * TC2 * 0.5 + vid * 0.7 * m3(gap.astype(np.float32))
     return render(Hm, alb, (0.0, -0.75, 0.6), Lcol=C(1.0, 0.95, 0.9) * 1.5, amb=0.3, spec=0.5, shin=35, emis=emis,
                   fog=2500 * DEP, mask=mask, layers=90)
 
