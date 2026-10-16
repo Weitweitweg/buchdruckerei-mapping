@@ -49,15 +49,15 @@ jobs:
           done
           ffmpeg -v error -y -f concat -safe 0 -i list_k5p.txt -c copy -movflags +faststart full4k.mp4
           ffmpeg -v error -y -f concat -safe 0 -i list_k5c.txt -c copy -movflags +faststart fullcontent.mp4
-          mkdir -p media/v4
-          ffmpeg -v error -y -i full4k.mp4 -c copy -f segment -segment_time 40 -reset_timestamps 1 media/v4/Buchdruckerei_4K_Teil_%d.mp4
-          ffmpeg -v error -y -i fullcontent.mp4 -c copy -f segment -segment_time 40 -reset_timestamps 1 media/v4/Buchdruckerei_Content_Resolume_Teil_%d.mp4
-          ffmpeg -v error -y -i full4k.mp4 -vf scale=1920:1080:flags=lanczos -c:v libx264 -preset medium -b:v 1800k -maxrate 2600k -bufsize 5000k -an media/v4/Buchdruckerei_Vorschau_1080p.mp4
-          ls -la media/v4
+          mkdir -p media/v5
+          ffmpeg -v error -y -i full4k.mp4 -c copy -f segment -segment_time 40 -reset_timestamps 1 media/v5/Buchdruckerei_4K_Teil_%d.mp4
+          ffmpeg -v error -y -i fullcontent.mp4 -c copy -f segment -segment_time 40 -reset_timestamps 1 media/v5/Buchdruckerei_Content_Resolume_Teil_%d.mp4
+          ffmpeg -v error -y -i full4k.mp4 -vf scale=1920:1080:flags=lanczos -c:v libx264 -preset medium -b:v 1800k -maxrate 2600k -bufsize 5000k -an media/v5/Buchdruckerei_Vorschau_1080p.mp4
+          ls -la media/v5
       - name: commit results
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          git add media/v4
-          git commit -m "v4 Render-Ergebnis (4K in Teilen + Resolume-Content)"
-          git push
+          git add media/v5
+          git commit -m "v5 Render-Ergebnis (4K in Teilen + Resolume-Content)"
+          git pull --rebase -q && git push

@@ -69,6 +69,8 @@ def interior_tex():
         img += m3(WMASKS[i]) * (C(0.25, 0.6, 1.0) * m3(0.35 + 1.2 * lamp) + m3(shelves))
     return img
 INTERIOR = interior_tex()
+_dk = np.ones((int(30 * K),) * 2, np.uint8)
+WBOX = [np.clip(cv2.dilate(WMASKS[i], _dk) * np.clip(GLASS + FRAMES, 0, 1), 0, 1).astype(np.float32) for i in range(NWIN)]
 
 # ---------- video sources ----------
 class Clip:
@@ -181,6 +183,12 @@ def grade(vid, keep=0.35):
     """pull a clip into the facade palette, keep a little of its own colour"""
     g = lum(vid)
     return tone(np.clip(g * 1.15, 0, 1)) * (1 - keep) + vid * keep * (0.6 + 0.4 * m3(g))
+
+def archmix(fig, glass=1.15, frames=0.9, plaster=0.18, sand=0.10):
+    """reference-style: the motif lives in the windows, frames glow in its colours, plaster only shimmers"""
+    blur = cv2.GaussianBlur(fig, (0, 0), 22 * K)
+    return (fig * m3(GLASS) * glass + blur * m3(FRAMES) * frames * 1.6 +
+            fig * m3(PLASTER) * plaster + fig * m3(SAND) * sand)
 
 def gothic_hall():
     img = np.zeros((H, W, 3), np.float32)
@@ -337,7 +345,8 @@ def sc_portal84(t, t0):
     alb = F * (0.55 - 0.2 * op)
     light = (-0.35, -0.8, 0.5)
     Hm1 = np.where((GLASS > 0.5) & (op > 0.5), NEG, HB * 1.6)
-    kw = dict(Lcol=C(1.0, 0.97, 0.95), amb=0.06, spec=0.15, fog=1e9, back_alb=vid, back_z=back_z + 1.0,
+    glowmix = archmix(vid * op, glass=0.0, frames=0.8, plaster=0.12, sand=0.06)
+    kw = dict(Lcol=C(1.0, 0.97, 0.95), amb=0.06, spec=0.15, fog=1e9, back_alb=vid, back_z=back_z + 1.0, emis=glowmix,
               layers=40, back_emis=True, thin_back=back_z, back_par=0.12)
     R1 = render(Hm1, alb, light, **kw)
     if big < 0.005:
@@ -394,25 +403,25 @@ def sc_relief07(t, t0):
     Hm = HB * 1.4 + rel * 16 * DEP * amp
     base = 0.5 * F + 0.5 * GRAYF * C(0.92, 0.96, 1.0)
     alb = F * 0.30 * (1 - amp) + base * m3(0.22 + 1.1 * v) * amp
-    emis = tone(v) * m3(v * amp * (1 - 0.8 * GLASS)) * 0.3
+    emis = tone(v) * m3(v * amp * (1 - 0.8 * GLASS)) * 0.3 + archmix(tone(v) * m3(v) * amp, glass=1.0, frames=0.7, plaster=0.0, sand=0.0)
     ang = math.pi * (1.0 - 0.6 * ss(0, 10, tt))
     return render(Hm, alb, (math.cos(ang), -0.5, 0.45), Lcol=C(1.0, 0.95, 0.9) * 1.2, amb=0.25, spec=0.3, shin=30, emis=emis)
 
 def sc_monolith101(t, t0):
-    """Ethnik 101: the figure swells softly out of the gable stone and sinks back"""
+    """Ethnik 101: the figure stands behind the facade; every window is a pixel of it and pushes out with its brightness"""
     tt = t - t0
     ext = ss(0.3, 2.8, tt) * (1 - ss(8.0, 10.8, tt))
-    soft = cv2.GaussianBlur(GABLE, (0, 0), 45 * K) * BLD
-    soft = np.clip(soft / soft.max(), 0, 1)
     fr = np.clip(e101_full(tt), 0, 1) ** 0.55
-    vid = grade(place(fr, 1.0, W / 2, H * 0.40), keep=0.6)
-    gv = lum(vid)
-    breathe = 1 + 0.08 * math.sin(tt * 1.3)
-    a = soft * np.clip((ext * 1.25 - (1 - soft)) / 0.35, 0, 1)
-    Hm = HB * 1.3 + (a * 55 * DEP * breathe + cv2.GaussianBlur(gv, (0, 0), 4 * K) * a * 22 * DEP)
-    alb = F * 0.35 * m3(1 - a) + vid * m3(a)
-    emis = vid * m3(a) * (0.6 + 0.4 * m3(GLASS))
-    return render(Hm, alb, (-0.45, -0.7, 0.55), Lcol=C(1.0, 0.95, 0.9) * 1.1, amb=0.15, spec=0.25, shin=40, emis=emis, layers=60)
+    fig = grade(place(fr, 1.15, W / 2, H * 0.42), keep=0.6)
+    gv = lum(fig)
+    Hm = HB * 1.4
+    for i in range(NWIN):
+        wm = WMASKS[i]
+        val = float((gv * wm).sum() / max(1.0, wm.sum()))
+        Hm = Hm + WBOX[i] * (12 + val * 110) * DEP * ext
+    alb = F * 0.40
+    emis = archmix(fig, glass=1.3, frames=1.0, plaster=0.38, sand=0.2) * ext
+    return render(Hm, alb, (-0.45, -0.7, 0.55), Lcol=C(1.0, 0.95, 0.9) * 1.1, amb=0.12, spec=0.3, shin=40, emis=emis, layers=60)
 
 def sc_temple124(t, t0):
     """Ethnik 124: the facade splits like a temple gate and reveals the stone mask deep inside"""
@@ -434,7 +443,8 @@ def sc_temple124(t, t0):
     Hm = np.where(gap, zb, Hh + zhalf)
     alb = np.where(m3(gap), vid * 0.6, Fh)
     mask = np.where(gap, BLD, Bh * BLD)
-    emis = vid * 0.7 * m3(gap.astype(np.float32))
+    Wf = rmap(FRAMES, srcx, YY) * (~gap)
+    emis = vid * 0.7 * m3(gap.astype(np.float32)) + cv2.GaussianBlur(vid, (0, 0), 60 * K) * m3(Wf) * 1.4 * o
     return render(Hm, alb, (0.0, -0.75, 0.6), Lcol=C(1.0, 0.95, 0.9) * 1.5, amb=0.3, spec=0.5, shin=35, emis=emis,
                   fog=2500 * DEP, mask=mask, layers=90)
 
