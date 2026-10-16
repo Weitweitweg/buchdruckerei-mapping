@@ -1,0 +1,63 @@
+name: render-4k
+on:
+  workflow_dispatch:
+  push:
+    paths: ['render/render5.py', '.github/workflows/render.yml']
+permissions:
+  contents: write
+jobs:
+  chunk:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        c: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+      - run: pip install -q numpy opencv-python-headless
+      - name: render chunk
+        run: |
+          cd render
+          F0=$(( ${{ matrix.c }} * 300 )); F1=$(( F0 + 300 ))
+          T=$(printf "%02d" ${{ matrix.c }})
+          python render5.py video $F0 $F1 $T
+          ls -la k5p_$T.mp4 k5c_$T.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunk-${{ matrix.c }}
+          path: |
+            render/k5p_*.mp4
+            render/k5c_*.mp4
+          retention-days: 3
+  assemble:
+    needs: chunk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+      - uses: actions/download-artifact@v4
+        with:
+          path: parts
+          merge-multiple: true
+      - name: concat and split into GitHub-sized parts
+        run: |
+          ls -la parts
+          for p in k5p k5c; do
+            : > list_$p.txt
+            for c in 00 01 02 03 04 05 06 07 08 09 10 11; do echo "file 'parts/${p}_$c.mp4'" >> list_$p.txt; done
+          done
+          ffmpeg -v error -y -f concat -safe 0 -i list_k5p.txt -c copy -movflags +faststart full4k.mp4
+          ffmpeg -v error -y -f concat -safe 0 -i list_k5c.txt -c copy -movflags +faststart fullcontent.mp4
+          mkdir -p media/v4
+          ffmpeg -v error -y -i full4k.mp4 -c copy -f segment -segment_time 40 -reset_timestamps 1 media/v4/Buchdruckerei_4K_Teil_%d.mp4
+          ffmpeg -v error -y -i fullcontent.mp4 -c copy -f segment -segment_time 40 -reset_timestamps 1 media/v4/Buchdruckerei_Content_Resolume_Teil_%d.mp4
+          ffmpeg -v error -y -i full4k.mp4 -vf scale=1920:1080:flags=lanczos -c:v libx264 -preset medium -b:v 1800k -maxrate 2600k -bufsize 5000k -an media/v4/Buchdruckerei_Vorschau_1080p.mp4
+          ls -la media/v4
+      - name: commit results
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add media/v4
+          git commit -m "v4 Render-Ergebnis (4K in Teilen + Resolume-Content)"
+          git push
