@@ -50,10 +50,38 @@ jobs:
           SAMPLES: ${{ fromJson(needs.plan.outputs.job).samples }}
           OUT: ${{ github.workspace }}/out/
         run: |
-          xvfb-run -a -s "-screen 0 1920x1080x24" ./bl/blender -b blender/$(python3 -c "import json;print(json.load(open('blender/job.json'))['blend'])") --gpu-backend opengl --python blender/render_chunk.py 2>&1 | grep -E "CHUNK_TIME|Error|Saved: .*f_0*${FS}\.|Traceback" | head -40
+          xvfb-run -a -s "-screen 0 1920x1080x24" ./bl/blender -b blender/$(python3 -c "import json;print(json.load(open('blender/job.json'))['blend'])") --gpu-backend opengl --python blender/render_chunk.py > log.txt 2>&1 || true
+          grep -E "CHUNK_TIME|Traceback|Error" log.txt | head -20 > out/_log_${FS}.txt || true
           ls out | wc -l
       - uses: actions/upload-artifact@v4
         with:
           name: frames-${{ matrix.fs }}
           path: out/
           retention-days: 3
+  assemble:
+    needs: [plan, render]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: frames
+          merge-multiple: true
+      - name: encode
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('blender/job.json'))['tag'])")
+          mkdir -p media/blender
+          cat frames/_log_*.txt > media/blender/${TAG}_log.txt || true
+          ls frames | grep -c jpg >> media/blender/${TAG}_log.txt
+          sudo apt-get install -y -qq ffmpeg > /dev/null
+          ffmpeg -loglevel error -y -framerate 24 -pattern_type glob -i 'frames/f_*.jpg' -c:v libx264 -crf 20 -pix_fmt yuv420p media/blender/${TAG}.mp4 || true
+          ls -la media/blender
+      - name: commit
+        run: |
+          git config user.name "render-bot"; git config user.email "render-bot@users.noreply.github.com"
+          git add media/blender
+          git commit -m "Render-Ergebnis $(python3 -c "import json;print(json.load(open('blender/job.json'))['tag'])")" || exit 0
+          for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 5; done
